@@ -1,10 +1,15 @@
+// Description: Handles user authentication including registration, login, and logout functionalities.
+import express from "express";
 import { User } from "../models/User.js";
 import bcrypt from "bcryptjs";
 import { generateToken } from "../utils/jwt.js";
 
+// Register a new user
 export const register = async (req, res) => {
+    // Get user details from the request body
     const { name, email, password } = req.body;
 
+    // Check if all fields are provided
     if (!name || !email || !password) {
         return res.status(400).json({
             success: false,
@@ -13,6 +18,7 @@ export const register = async (req, res) => {
     }
 
     try {
+        // Check if a user with the same email already exists
         let user = await User.findOne({ email });
 
         if (user) {
@@ -22,22 +28,26 @@ export const register = async (req, res) => {
             });
         }
 
+        // Hash the password for security
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+        // Create the new user in the database
         user = await User.create({
             name,
             email,
             password: hashedPassword,
         });
 
+        // Generate a JWT token for the new user
         const token = generateToken(user);
 
+        // Set the token as a cookie and send the response
         res.status(201)
             .cookie("token", token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production",
-                sameSite: "strict",
+                httpOnly: true, // Cookie can't be accessed by JS on the client
+                secure: process.env.NODE_ENV === "production", // Only send cookie over HTTPS in production
+                sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax", // Lax for dev, strict for prod
             })
             .json({
                 success: true,
@@ -53,9 +63,12 @@ export const register = async (req, res) => {
     }
 };
 
+// Login an existing user
 export const login = async (req, res) => {
+    // Get email and password from the request body
     const { email, password } = req.body;
 
+    // Check if both fields are provided
     if (!email || !password) {
         return res.status(400).json({
             success: false,
@@ -64,8 +77,10 @@ export const login = async (req, res) => {
     }
 
     try {
+        // Find the user by email and include the password field
         const user = await User.findOne({ email }).select("+password");
 
+        // If user not found, return error
         if (!user) {
             return res.status(401).json({
                 success: false,
@@ -73,8 +88,10 @@ export const login = async (req, res) => {
             });
         }
 
+        // Compare the provided password with the hashed password in the database
         const isMatch = await bcrypt.compare(password, user.password);
 
+        // If password doesn't match, return error
         if (!isMatch) {
             return res.status(401).json({
                 success: false,
@@ -82,13 +99,16 @@ export const login = async (req, res) => {
             });
         }
 
+        // Generate a JWT token for the user
         const token = generateToken(user);
+        const isProduction = process.env.NODE_ENV === "production";
 
+        // Set the token as a cookie and send the response
         res.status(200)
             .cookie("token", token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production",
-                sameSite: "strict",
+                httpOnly: true, // Cookie can't be accessed by JS on the client
+                secure: isProduction, // Only send cookie over HTTPS in production
+                sameSite: isProduction ? "strict" : "lax", // Lax for dev, strict for prod
             })
             .json({
                 success: true,
@@ -102,4 +122,14 @@ export const login = async (req, res) => {
             error: error.message,
         });
     }
+};
+
+// Logout user (clear the cookie)
+export const logout = (req, res) => {
+    res.cookie("token", "", {
+        httpOnly: true,
+        expires: new Date(0),
+        sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+        secure: process.env.NODE_ENV === "production",
+    }).json({ success: true, message: "Logged out successfully" });
 };
